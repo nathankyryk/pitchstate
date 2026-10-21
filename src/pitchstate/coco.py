@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -91,3 +92,21 @@ def convert_split(root: Path, split: str, out: Path, stride: int = 5) -> Counter
     coco = {"images": images, "annotations": annotations, "categories": CATEGORIES}
     (out / "_annotations.coco.json").write_text(json.dumps(coco))
     return stats
+
+
+def make_subset(src: Path, dst: Path, n_images: int, seed: int = 0) -> int:
+    """Copy a small random sample of a converted split, for smoke tests. Returns the image count."""
+    coco = json.loads((src / "_annotations.coco.json").read_text())
+    k = min(n_images, len(coco["images"]))
+    images = sorted(random.Random(seed).sample(coco["images"], k=k), key=lambda im: im["id"])
+    keep = {im["id"] for im in images}
+    dst.mkdir(parents=True, exist_ok=True)
+    for im in images:
+        link_or_copy(src / im["file_name"], dst / im["file_name"])
+    subset = {
+        "images": images,
+        "annotations": [a for a in coco["annotations"] if a["image_id"] in keep],
+        "categories": coco["categories"],
+    }
+    (dst / "_annotations.coco.json").write_text(json.dumps(subset))
+    return len(images)

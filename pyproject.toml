@@ -13,19 +13,23 @@ dependencies = [
     "tabulate",  # silences a TrackEval import warning
     "duckdb",
     "opencv-python-headless",
+    "pandas",
     "typer",
+    "setuptools<82",  # SAM 3.1 imports pkg_resources; 81.0 verified to still ship it
     # Models
     "torch>=2.11,<2.12",  # newest release built for CUDA 12.8; same version on both platforms
     "torchvision>=0.26,<0.27",
-    "rfdetr>=1.11",
+    "rfdetr[train]>=1.11",  # [train] brings PyTorch Lightning and the COCO evaluators
+    "tensorboard",  # training curves (RF-DETR logs to it by default)
     "supervision>=0.29",
+    "trackers>=2.6",  # Roboflow's ByteTrack (moved out of supervision)
+    "ultralytics",  # runs Roboflow's pretrained pitch-keypoint model (AGPL-3.0)
     "transformers>=5.1,<6",
     "scikit-learn",
     "umap-learn",
     # Evaluation
     "trackeval",
-    # Analyst and demo
-    "anthropic",
+    # Demo app
     "gradio",
     # SAM 3.1 runs only on the Linux GPU pod. einops and scikit-image are
     # imported by its video code but missing from its own dependency list.
@@ -52,6 +56,14 @@ requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv]
+# `trackers` declares numpy>=2, but SAM 3.1 needs numpy<2. Its ByteTrack is plain
+# numpy/scipy and is covered by tests/test_track.py on numpy 1.26, so the pin wins.
+# It also asks for the desktop OpenCV build; we keep the headless one (same `cv2`
+# module, no GUI libraries needed on the pod).
+override-dependencies = [
+    "numpy>=1.26,<2",
+    "opencv-python; sys_platform == 'never'",
+]
 # One lockfile for both machines: the Windows PC (CPU) and the Runpod pod (Linux + CUDA).
 environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
