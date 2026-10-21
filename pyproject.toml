@@ -3,14 +3,79 @@ name = "pitchstate"
 version = "0.1.0"
 description = "Soccer game-state reconstruction (detection, SAM 3.1 masks, tracking, pitch mapping) with an LLM match analyst, evaluated on SoccerNet GSR"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
+    # Data and utilities
+    "numpy>=1.26,<2",  # SAM 3.1 needs numpy < 2; pinned on both platforms so they match
+    "pillow>=10",
     "soccernet>=0.2.0",
+    "pyarrow>=22,<26",  # 26+ requires numpy 2
+    "tabulate",  # silences a TrackEval import warning
+    "duckdb",
+    "opencv-python-headless",
+    "typer",
+    # Models
+    "torch>=2.11,<2.12",  # newest release built for CUDA 12.8; same version on both platforms
+    "torchvision>=0.26,<0.27",
+    "rfdetr>=1.11",
+    "supervision>=0.29",
+    "transformers>=5.1,<6",
+    "scikit-learn",
+    "umap-learn",
+    # Evaluation
+    "trackeval",
+    # Analyst and demo
+    "anthropic",
+    "gradio",
+    # SAM 3.1 runs only on the Linux GPU pod. einops and scikit-image are
+    # imported by its video code but missing from its own dependency list.
+    "sam3 ; sys_platform == 'linux'",
+    "einops ; sys_platform == 'linux'",
+    "scikit-image ; sys_platform == 'linux'",
 ]
 
 [project.scripts]
 pitchstate = "pitchstate:main"
 
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["data", "outputs", "weights"]
+
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+# One lockfile for both machines: the Windows PC (CPU) and the Runpod pod (Linux + CUDA).
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+sam3 = { git = "https://github.com/facebookresearch/sam3", rev = "7f473cfd983d5eb43040ff608f66bff0d7bdcb53" }
+trackeval = { git = "https://github.com/JonathonLuiten/TrackEval", rev = "12c8791b303e0a0b50f753af204249e622d0281a" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
