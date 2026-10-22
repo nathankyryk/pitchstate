@@ -109,11 +109,14 @@ def train_pitch(smoke: bool = False, epochs: int = 20, imgsz: int = 640, batch: 
 
     out = _out(smoke)
     strides, cap = ({"train": 50, "valid": 150}, 8) if smoke else ({"train": 5, "valid": 25}, None)
-    counts = write_yolo_pose_dataset(DEFAULT_ROOT, out / "pitch_dataset", strides, cap)
+    # The training set (~8,000 frames) goes under data/: local disk on the pod, where the
+    # frames are, so it is hard links rather than slow copies onto the network volume.
+    dataset = out / "pitch_dataset" if smoke else Path("data/pitch_dataset")
+    counts = write_yolo_pose_dataset(DEFAULT_ROOT, dataset, strides, cap)
     typer.echo(f"labelled frames: {counts}")
     if smoke:
         epochs, imgsz, batch, workers = 1, 320, 2, 0
-    best = finetune(PITCH_BASE, out / "pitch_dataset" / "data.yaml", out / "pitch_model", epochs, imgsz, batch,
+    best = finetune(PITCH_BASE, dataset / "data.yaml", out / "pitch_model", epochs, imgsz, batch,
                     "cpu" if smoke else None, workers)  # fmt: skip
     typer.echo(f"best weights: {best}")
 

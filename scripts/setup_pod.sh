@@ -78,21 +78,25 @@ fi
 echo "$HOME/.roboflow -> $(readlink "$HOME/.roboflow")"
 
 step "SoccerNet GSR data"
-data="$REPO_DIR/data/SoccerNetGS/gamestate-2024"
-have_data=1
-for split in train valid test; do
-  # The marker is written only after a whole split is unpacked, so an unpack cut short
-  # (a stopped pod) is redone instead of trusted.
-  [ -f "$data/$split/.extracted" ] || have_data=0
-done
-if [ "$have_data" = 0 ]; then
-  uv run python scripts/download_gsr.py  # ~28 GB, a few minutes inside the datacenter
+# The 3 zips (~28 GB) live on the volume: few large files, fast, and they persist.
+# The ~123,000 frames are unpacked to this pod's local disk, which writes small files
+# ~17x faster than the network volume (834 vs 49 files/s measured). Local disk is wiped
+# when the pod stops, so each new pod unpacks again (a few minutes).
+zips="$WORKSPACE/datasets/SoccerNetGS"
+local_data="/root/pitchstate-data"
+mkdir -p "$zips/gamestate-2024" "$local_data"
+if [ -d "$REPO_DIR/data" ] && [ ! -L "$REPO_DIR/data" ]; then
+  # Older layout (data on the volume): keep any downloaded zips, drop the slow partial unpack.
+  find "$REPO_DIR/data" -maxdepth 3 -name '*.zip' -exec mv -n {} "$zips/gamestate-2024/" \;
+  rm -rf "$REPO_DIR/data"
 fi
+ln -sfn "$local_data" "$REPO_DIR/data"  # code reads data/..., which now lives on local disk
+uv run python scripts/download_gsr.py --zips "$zips" --out "$REPO_DIR/data/SoccerNetGS"
+data="$REPO_DIR/data/SoccerNetGS/gamestate-2024"
 for split in train valid test; do
-  # Only a fully unpacked split makes its zip disposable: free the space.
-  [ -f "$data/$split.zip" ] && [ -f "$data/$split/.extracted" ] && rm -f "$data/$split.zip"
   echo "$split: $(find "$data/$split" -mindepth 1 -maxdepth 1 -type d | wc -l) clips"
 done
+df -h "$local_data" | tail -n 1
 
 step "Model weights"
 mkdir -p weights

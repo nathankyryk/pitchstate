@@ -8,25 +8,28 @@ download_gsr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(download_gsr)
 
 
-def _archive(tmp_path: Path) -> Path:
-    archive = tmp_path / "valid.zip"
+def _archive(folder: Path) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    archive = folder / "valid.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("valid/SNGS-001/img1/000001.jpg", b"frame")
         zf.writestr("valid/SNGS-001/Labels-GameState.json", b"{}")
     return archive
 
 
-def test_extract_marks_a_complete_unpack(tmp_path):
-    archive = _archive(tmp_path)
-    download_gsr.extract(archive)
-    assert (tmp_path / "valid" / "SNGS-001" / "img1" / "000001.jpg").read_bytes() == b"frame"
-    assert (tmp_path / "valid" / download_gsr.MARKER).exists()
+def test_extract_to_another_disk_and_mark_it_complete(tmp_path):
+    archive = _archive(tmp_path / "volume")
+    target = tmp_path / "local" / "gamestate-2024" / "valid"
+    download_gsr.extract(archive, target)
+    assert (target / "SNGS-001" / "img1" / "000001.jpg").read_bytes() == b"frame"
+    assert (target / download_gsr.MARKER).exists()
+    assert archive.exists()  # the zip stays where it is kept
 
 
 def test_an_interrupted_unpack_is_redone(tmp_path):
     archive = _archive(tmp_path)
-    partial = tmp_path / "valid" / "SNGS-001"
-    partial.mkdir(parents=True)  # folder exists, but the unpack never finished (no marker)
-    download_gsr.extract(archive)
-    assert (partial / "Labels-GameState.json").exists()
-    assert (tmp_path / "valid" / download_gsr.MARKER).exists()
+    target = tmp_path / "valid"
+    (target / "SNGS-001").mkdir(parents=True)  # folder exists, but the unpack never finished
+    download_gsr.extract(archive, target)
+    assert (target / "SNGS-001" / "Labels-GameState.json").exists()
+    assert (target / download_gsr.MARKER).exists()
