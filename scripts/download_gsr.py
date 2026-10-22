@@ -11,10 +11,14 @@ from pathlib import Path
 
 from SoccerNet.Downloader import SoccerNetDownloader
 
+MARKER = ".extracted"  # written only once a whole archive is unpacked
+
 
 def extract(archive: Path) -> None:
+    """Unpack a split. A folder without the marker was interrupted mid-unpack (a stopped pod,
+    say), so it is unpacked again rather than trusted."""
     target = archive.with_suffix("")
-    if target.exists():
+    if (target / MARKER).exists():
         print(f"skip {archive.name}: already extracted")
         return
     with zipfile.ZipFile(archive) as zf:
@@ -23,6 +27,7 @@ def extract(archive: Path) -> None:
         dest = archive.parent if nested else target
         print(f"extracting {archive.name} -> {dest}")
         zf.extractall(dest)
+    (target / MARKER).write_text("ok\n")
 
 
 def main() -> None:

@@ -81,14 +81,16 @@ step "SoccerNet GSR data"
 data="$REPO_DIR/data/SoccerNetGS/gamestate-2024"
 have_data=1
 for split in train valid test; do
-  [ -d "$data/$split" ] || have_data=0
+  # The marker is written only after a whole split is unpacked, so an unpack cut short
+  # (a stopped pod) is redone instead of trusted.
+  [ -f "$data/$split/.extracted" ] || have_data=0
 done
 if [ "$have_data" = 0 ]; then
   uv run python scripts/download_gsr.py  # ~28 GB, a few minutes inside the datacenter
 fi
 for split in train valid test; do
-  # Once a split is unpacked its zip is never needed again: free the space.
-  [ -f "$data/$split.zip" ] && [ -d "$data/$split" ] && rm -f "$data/$split.zip"
+  # Only a fully unpacked split makes its zip disposable: free the space.
+  [ -f "$data/$split.zip" ] && [ -f "$data/$split/.extracted" ] && rm -f "$data/$split.zip"
   echo "$split: $(find "$data/$split" -mindepth 1 -maxdepth 1 -type d | wc -l) clips"
 done
 
