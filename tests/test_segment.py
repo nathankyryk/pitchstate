@@ -3,7 +3,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from pitchstate.gsr import list_clips
-from pitchstate.segment import GroundTruthTracks, attach_masks, box_iou, mask_features, write_tracks
+from pitchstate.segment import GroundTruthTracks, MaskWriter, attach_masks, box_iou, mask_features, write_tracks
 
 
 def test_mask_features_rectangle():
@@ -74,3 +74,19 @@ def test_write_tracks_with_ground_truth_stand_in(gsr_root, tmp_path):
     table = pq.read_table(tmp_path / "t.parquet").to_pandas()
     referee = table[(table.frame == 1) & (table.obj_id == 14)].iloc[0]
     assert (referee.x2, referee.y2) == (64, 36)  # clipped to the 64x36 frame
+
+
+def test_mask_writer_round_trips_rle(gsr_root, tmp_path):
+    import json
+
+    from pycocotools import mask as mask_utils
+
+    (clip,) = list_clips("valid", gsr_root)
+    writer = MaskWriter()
+    write_tracks(GroundTruthTracks(), clip, tmp_path / "t.parquet", max_frames=2, on_frame=writer)
+    writer.save(tmp_path / "m.jsonl")
+    rows = [json.loads(line) for line in (tmp_path / "m.jsonl").read_text().splitlines()]
+    assert len(rows) == 2 * 4  # 4 people per frame (the sub-pixel one encodes as an empty mask)
+    player = next(r for r in rows if r["frame"] == 1 and r["obj_id"] == 11)
+    decoded = mask_utils.decode({"size": player["size"], "counts": player["counts"].encode()})
+    assert decoded.shape == (36, 64) and decoded.sum() == 8 * 20  # the 8x20 player box

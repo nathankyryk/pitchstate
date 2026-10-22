@@ -130,6 +130,34 @@ class GroundTruthTracks:
             }
 
 
+class MaskWriter:
+    """A `write_tracks` hook that keeps every mask of a clip as COCO run-length encoding.
+
+    Only used for the few demo clips: raw masks are ~50 MB per frame, RLE a few KB.
+    """
+
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def __call__(self, frame_index: int, out: FrameOutput) -> None:
+        from pycocotools import mask as mask_utils
+
+        masks = np.asarray(out["out_binary_masks"])
+        if masks.shape[0] == 0:
+            return
+        rles = mask_utils.encode(np.asfortranarray(masks.transpose(1, 2, 0).astype(np.uint8)))
+        for obj_id, rle in zip(out["out_obj_ids"], rles):
+            self.rows.append(
+                {"frame": frame_index, "obj_id": int(obj_id), "size": rle["size"], "counts": rle["counts"].decode()}
+            )
+
+    def save(self, path: Path) -> None:
+        import json
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(r) for r in self.rows) + "\n")
+
+
 def write_tracks(
     tracker,
     clip: Clip,

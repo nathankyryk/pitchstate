@@ -2,6 +2,15 @@
 # Caches live on the network volume, so a new pod reuses Python, wheels and model
 # weights instead of downloading them again.
 
+# SSH sessions may not inherit the container's environment (RUNPOD_POD_ID, RUNPOD_API_KEY);
+# Runpod keeps a copy in /etc/rp_environment.
+if [ -z "${RUNPOD_POD_ID:-}" ] && [ -f /etc/rp_environment ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source /etc/rp_environment
+  set +a
+fi
+
 export WORKSPACE="${WORKSPACE:-/workspace}"
 export REPO_DIR="$WORKSPACE/pitchstate"
 export LOG_DIR="$WORKSPACE/logs"

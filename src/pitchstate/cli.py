@@ -8,6 +8,7 @@ Stage outputs are written one file per clip; a re-run skips clips that are alrea
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -19,7 +20,7 @@ import typer
 from pitchstate.gsr import DEFAULT_ROOT, list_clips
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help=__doc__)
-OUT = Path("outputs")
+OUT = Path(os.environ.get("PITCHSTATE_OUT", "outputs"))  # the pod's check stage writes to outputs/check
 WEIGHTS = Path("weights")
 SAM_WEIGHTS = WEIGHTS / "sam3.1_multiplex.pt"
 PITCH_BASE = WEIGHTS / "football-pitch-detection.pt"
@@ -85,10 +86,12 @@ def train_detector(
 
     out = _out(smoke)
     full = Path("data/rfdetr_gsr")
-    for split in ("train", "valid", "test"):
+    # RF-DETR scores itself on `valid` after every epoch: every 25th frame (1,740 images)
+    # keeps that to about a minute. Final accuracy is measured separately on the test split.
+    for split, stride in (("train", 5), ("valid", 25), ("test", 25)):
         if not (full / split / "_annotations.coco.json").exists():
-            typer.echo(f"converting {split} to COCO")
-            convert_split(DEFAULT_ROOT, split, full / split)
+            typer.echo(f"converting {split} to COCO (every {stride}th frame)")
+            convert_split(DEFAULT_ROOT, split, full / split, stride=stride)
     dataset = full
     if smoke:
         dataset = out / "rfdetr_subset"
@@ -158,22 +161,36 @@ def detect(split: str = "test", smoke: bool = False, size: str = "medium", resol
 
 @app.command()
 def sam(split: str = "test", smoke: bool = False, limit: int | None = None, prompt: str = "person",
-        embed_stride: int = 5) -> None:  # fmt: skip
-    """SAM 3.1 'person' masks and tracks, plus box and masked jersey embeddings."""
-    from pitchstate.segment import GroundTruthTracks, Sam31, write_tracks
+        embed_stride: int = 5, demo: int = 0) -> None:  # fmt: skip
+    """SAM 3.1 'person' masks and tracks, plus box and masked jersey embeddings.
+    --demo N also keeps every mask of the first N clips (RLE), for the demo video."""
+    import time
+
+    from pitchstate.segment import GroundTruthTracks, MaskWriter, Sam31, write_tracks
     from pitchstate.teams import Embedder, EmbeddingCollector
 
     out = _out(smoke)
     tracker = GroundTruthTracks() if smoke else Sam31(SAM_WEIGHTS)
     embedder = Embedder()
-    for clip in _clips(split, smoke, limit):
+    for i, clip in enumerate(_clips(split, smoke, limit)):
         path = out / "sam" / split / f"{clip.name}.parquet"
-        if _todo(path, clip.name):
-            collector = EmbeddingCollector(clip, embedder, stride=embed_stride)
-            n = write_tracks(tracker, clip, path, prompt=prompt, max_frames=SMOKE_FRAMES if smoke else None,
-                             on_frame=collector)  # fmt: skip
-            collector.save(path.with_suffix(".npz"))
-            typer.echo(f"  {clip.name}: {n} masks, {len(collector.frame)} embedded crops")
+        if not _todo(path, clip.name):
+            continue
+        start = time.time()
+        collector = EmbeddingCollector(clip, embedder, stride=embed_stride)
+        masks = MaskWriter() if i < demo else None
+
+        def hook(frame_index, frame_out, collector=collector, masks=masks):
+            collector(frame_index, frame_out)
+            if masks is not None:
+                masks(frame_index, frame_out)
+
+        n = write_tracks(tracker, clip, path, prompt=prompt, max_frames=SMOKE_FRAMES if smoke else None,
+                         on_frame=hook)  # fmt: skip
+        collector.save(path.with_suffix(".npz"))
+        if masks is not None:
+            masks.save(out / "sam_masks" / split / f"{clip.name}.jsonl")
+        typer.echo(f"  {clip.name}: {n} masks, {len(collector.frame)} embedded crops ({time.time() - start:.0f}s)")
 
 
 @app.command()
