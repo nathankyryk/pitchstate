@@ -95,7 +95,9 @@ finish() {
   sync
   echo "Stopping pod $RUNPOD_POD_ID. Outputs and logs stay on the volume."
   if command -v runpodctl >/dev/null; then
-    { runpodctl pod stop "$RUNPOD_POD_ID" || runpodctl stop pod "$RUNPOD_POD_ID"; } && return
+    # The pod image ships runpodctl v1 ("stop pod"). The pod's own key may stop its pod
+    # (verified 2026-10-22) even though it cannot read pod details.
+    { runpodctl stop pod "$RUNPOD_POD_ID" || runpodctl pod stop "$RUNPOD_POD_ID"; } && return
   fi
   curl -fsS -X POST -H "Authorization: Bearer ${RUNPOD_API_KEY:-}" \
     "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID/stop" && return
@@ -103,16 +105,13 @@ finish() {
 }
 trap finish EXIT
 
-can_stop_self() { # read-only proof that train/infer will be able to stop the pod
+can_stop_self() { # train/infer stop the pod with runpodctl and the pod's own key
+  # A real stop can't be tested without stopping, and the pod key is refused for reads
+  # (HTTP 403), so check the pieces that `runpodctl stop pod` needs (verified 2026-10-22).
   [ -n "${RUNPOD_POD_ID:-}" ] || { echo "RUNPOD_POD_ID is not set"; return 1; }
-  echo "pod id: $RUNPOD_POD_ID"
-  if command -v runpodctl >/dev/null; then
-    echo "runpodctl: $(runpodctl version 2>/dev/null || runpodctl --version 2>/dev/null || echo present)"
-  else
-    echo "runpodctl: missing (the REST API fallback will be used)"
-  fi
-  curl -fsS -o /dev/null -w 'REST API with the pod key: HTTP %{http_code}\n' \
-    -H "Authorization: Bearer ${RUNPOD_API_KEY:-}" "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"
+  [ -n "${RUNPOD_API_KEY:-}" ] || { echo "RUNPOD_API_KEY is not set"; return 1; }
+  command -v runpodctl >/dev/null || { echo "runpodctl is missing"; return 1; }
+  echo "pod $RUNPOD_POD_ID: runpodctl and the pod key are present"
 }
 
 run "update code" git pull --ff-only
