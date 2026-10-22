@@ -263,7 +263,7 @@ def assemble(
     """Join every stage into the game state and write official prediction files.
     --pitch oracle (perfect calibration) and --dets oracle (perfect detection) attribute errors."""
     from pitchstate.evaluate import image_ids, write_predictions
-    from pitchstate.gamestate import Variant, to_predictions
+    from pitchstate.gamestate import Variant, ball_positions, to_predictions
     from pitchstate.gamestate import assemble as build
     from pitchstate.pitch import frame_homographies, oracle_homography
 
@@ -286,8 +286,27 @@ def assemble(
         state_path = out / "gamestate" / name / split / f"{clip.name}.parquet"
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state.to_parquet(state_path)
+        ball_positions(detections, Hs).to_parquet(state_path.with_name(f"{clip.name}_ball.parquet"))
         write_predictions(out / "trackers", split, name, clip.name, to_predictions(state, image_ids(clip)))
         typer.echo(f"  {clip.name}: {len(state)} rows, {state['track_id'].nunique()} tracks")
+
+
+@app.command()
+def stats(name: str = "main", split: str = "test", smoke: bool = False, limit: int | None = None) -> None:
+    """Match analytics per clip (possession, speeds, team shape) as JSON, for the demo."""
+    from pitchstate.analytics import summarise
+
+    out = _out(smoke)
+    for clip in _clips(split, smoke, limit):
+        state_path = out / "gamestate" / name / split / f"{clip.name}.parquet"
+        state = pd.read_parquet(state_path)
+        ball = pd.read_parquet(state_path.with_name(f"{clip.name}_ball.parquet"))
+        summary = summarise(state, ball, clip.fps)
+        path = out / "stats" / name / split / f"{clip.name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(summary, indent=2))
+        held = summary.get("possession_pct", {})
+        typer.echo(f"  {clip.name}: possession {held}, fastest {summary.get('fastest', {}).get('top_speed_kmh')} km/h")
 
 
 @app.command("eval")

@@ -133,6 +133,29 @@ def assemble(
     return out[["frame", "track_id", "role", "team", "jersey", "x_m", "y_m", "score"]].reset_index(drop=True)
 
 
+def ball_positions(dets: pd.DataFrame, homographies: dict[int, np.ndarray], min_score: float = 0.3,
+                   max_gap: int = 10) -> pd.DataFrame:  # fmt: skip
+    """The ball on the pitch per frame: the most confident ball box, bottom-centre, in metres.
+    Gaps up to `max_gap` frames are filled linearly. (A ball in the air projects too far
+    from the camera; fine for possession, which only looks at balls near players.)"""
+    balls = dets[(dets["class_name"] == "ball") & (dets["score"] >= min_score)]
+    if balls.empty:
+        return pd.DataFrame(columns=["frame", "x_m", "y_m"])
+    best = balls.loc[balls.groupby("frame")["score"].idxmax()]
+    rows = []
+    for r in best.itertuples(index=False):
+        H = nearest_homography(homographies, int(r.frame))
+        if H is not None:
+            x, y = to_pitch(H, np.array([[(r.x1 + r.x2) / 2, r.y2]]))[0]
+            rows.append({"frame": int(r.frame), "x_m": x, "y_m": y})
+    if not rows:
+        return pd.DataFrame(columns=["frame", "x_m", "y_m"])
+    ball = pd.DataFrame(rows).set_index("frame")
+    frames = np.arange(ball.index.min(), ball.index.max() + 1)
+    ball = ball.reindex(frames).interpolate(limit=max_gap, limit_area="inside")
+    return ball.dropna().rename_axis("frame").reset_index()
+
+
 def to_predictions(state: pd.DataFrame, image_ids: dict[int, str]) -> list[dict]:
     """GSR prediction records for the official evaluator."""
     return [
