@@ -1,7 +1,7 @@
 [project]
 name = "pitchstate"
 version = "0.1.0"
-description = "Soccer game-state reconstruction (detection, SAM 3.1 masks, tracking, pitch mapping) with an LLM match analyst, evaluated on SoccerNet GSR"
+description = "Soccer game-state reconstruction from broadcast video (RF-DETR, SAM 3.1, ByteTrack, pitch calibration, jersey numbers), evaluated on SoccerNet GSR"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -25,10 +25,12 @@ dependencies = [
     "trackers>=2.6",  # Roboflow's ByteTrack (moved out of supervision)
     "ultralytics",  # runs Roboflow's pretrained pitch-keypoint model (AGPL-3.0)
     "transformers>=5.1,<6",
+    "timm",  # needed by PARSeq (jersey numbers), loaded through torch.hub
+    "nltk",  # PARSeq's model code imports nltk.edit_distance at load time
     "scikit-learn",
     "umap-learn",
-    # Evaluation
-    "trackeval",
+    # Evaluation: SoccerNet's TrackEval fork, which adds the official GS-HOTA metric
+    "sn-trackeval",
     # Demo app
     "gradio",
     # SAM 3.1 runs only on the Linux GPU pod. einops and scikit-image are
@@ -39,7 +41,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pitchstate = "pitchstate:main"
+pitchstate = "pitchstate.cli:app"
 
 [dependency-groups]
 dev = ["pytest", "ruff"]
@@ -80,7 +82,7 @@ torchvision = [
     { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
 sam3 = { git = "https://github.com/facebookresearch/sam3", rev = "7f473cfd983d5eb43040ff608f66bff0d7bdcb53" }
-trackeval = { git = "https://github.com/JonathonLuiten/TrackEval", rev = "12c8791b303e0a0b50f753af204249e622d0281a" }
+sn-trackeval = { git = "https://github.com/SoccerNet/sn-trackeval", rev = "9c25232f6f2b56c9f203f1eb55784ff1e97df683" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

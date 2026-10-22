@@ -107,6 +107,27 @@ def keypoint_labels(H: np.ndarray, width: int, height: int, margin: float = 0.0)
     return xy, visible
 
 
+def frame_homographies(keypoints, min_conf: float = 0.5) -> dict[int, np.ndarray]:
+    """Fit one homography per frame from a keypoints table (columns frame, x, y, conf)."""
+    out = {}
+    for row in keypoints.itertuples(index=False):
+        H = fit_homography(np.column_stack([row.x, row.y]), np.asarray(row.conf), min_conf)
+        if H is not None:
+            out[int(row.frame)] = H
+    return out
+
+
+def nearest_homography(Hs: dict[int, np.ndarray], frame: int, max_gap: int = 12) -> np.ndarray | None:
+    """The homography of `frame`, or of the closest frame within max_gap (camera moves slowly)."""
+    if frame in Hs:
+        return Hs[frame]
+    for gap in range(1, max_gap + 1):
+        for f in (frame - gap, frame + gap):
+            if f in Hs:
+                return Hs[f]
+    return None
+
+
 KEYPOINT_SCHEMA = pa.schema(
     [
         ("clip", pa.string()),
